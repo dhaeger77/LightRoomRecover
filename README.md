@@ -1,9 +1,46 @@
 # Lightroom Recover
 
 Gets photo edits out of an old Adobe Lightroom catalog (`.lrcat`) and saves them
-as small `.xmp` files next to each photo, which darktable can read.
+as small `.xmp` files next to each photo, which [darktable](https://www.darktable.org/)
+(free, Windows/Mac/Linux) can read.
 
 The catalog is never changed. The tool works on a temporary copy.
+
+**[Download the latest version](https://github.com/dhaeger77/LightRoomRecover/releases/latest)**
+
+## Why this tool?
+
+Lightroom keeps your edits inside its catalog, not next to your photos. darktable
+can import Lightroom edits, but only from `.xmp` files beside each photo, which
+Lightroom doesn't write unless that setting was turned on. Without them, darktable
+shows your RAW files unedited.
+
+This tool reads the catalog directly and writes those files. No Lightroom or
+Adobe account needed. It also:
+
+- turns your **collections** into darktable tags (Lightroom's own export leaves them out)
+- finds photos on a drive whose letter or folder has changed
+
+**Already have `.xmp` files next to your photos?** Then that setting was on, and
+darktable can read most of your edits without this tool.
+
+**Still have Lightroom (or its free trial)?** Select all photos, then
+**Metadata → Save Metadata to Files** (Ctrl+S / Cmd+S) does much the same job,
+minus the collections. While you're in there, export full-quality copies of your
+edited photos too. That's the only way to keep them looking exactly as you left them.
+
+### Other apps
+
+| App | Cost | Brings over Lightroom edits? |
+|---|---|---|
+| [darktable](https://www.darktable.org/) | Free | Partly, from `.xmp` files: crop, exposure, tone curve, color, spot removal, ratings, keywords |
+| Capture One | Paid | Partly, has a built-in Lightroom catalog importer |
+| ON1 Photo RAW | Paid | Partly, has a Lightroom migration tool |
+| Adobe Lightroom | Subscription | Yes, everything |
+| RawTherapee / ART | Free | No, you start over |
+| digiKam | Free | Ratings and keywords only (photo organizer, not an editor) |
+
+No app other than Lightroom reproduces Adobe's edits exactly. Expect "close", not identical.
 
 ## Windows: LightroomRecover.exe
 
