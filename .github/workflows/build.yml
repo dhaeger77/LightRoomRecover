@@ -19,7 +19,7 @@ jobs:
       - run: python -m unittest discover tests
       - run: pip install pyinstaller==6.11.1
       - run: pyinstaller --noconfirm --onefile --windowed --name LightroomRecover --distpath dist --workpath build --specpath build lrrecover_gui.py
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: LightroomRecover-windows
           path: dist/LightroomRecover.exe
@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: chmod +x build_mac.sh && PYTHON=python ./build_mac.sh
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: LightroomRecover-mac
           path: dist/LightroomRecover-mac.zip
