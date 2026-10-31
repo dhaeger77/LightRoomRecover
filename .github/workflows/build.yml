@@ -25,17 +25,31 @@ jobs:
           path: dist/LightroomRecover.exe
 
   macos:
-    runs-on: macos-latest   # Apple Silicon
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest       # Apple Silicon
+            chip: AppleSilicon
+            arch: arm64
+          - runner: macos-15-intel     # Intel
+            chip: Intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: chmod +x build_mac.sh && PYTHON=python ./build_mac.sh
+      - name: Check the app is built for ${{ matrix.arch }}
+        run: |
+          archs=$(lipo -archs "dist/Lightroom Recover.app/Contents/MacOS/Lightroom Recover")
+          echo "app architecture: $archs"
+          [[ " $archs " == *" ${{ matrix.arch }} "* ]]
       - uses: actions/upload-artifact@v6
         with:
-          name: LightroomRecover-mac
-          path: dist/LightroomRecover-mac.zip
+          name: LightroomRecover-mac-${{ matrix.chip }}
+          path: dist/LightroomRecover-mac-${{ matrix.chip }}.zip
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -53,9 +67,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            files/LightroomRecover.exe files/LightroomRecover-mac.zip \
+            files/LightroomRecover.exe \
+            files/LightroomRecover-mac-AppleSilicon.zip \
+            files/LightroomRecover-mac-Intel.zip \
             --repo "$GITHUB_REPOSITORY" --title "Lightroom Recover $GITHUB_REF_NAME" \
             --notes "**Windows:** download \`LightroomRecover.exe\` and double-click it.
-          **Mac (Apple Silicon):** download \`LightroomRecover-mac.zip\`, unzip, and open *Lightroom Recover*.
+
+          **Mac:** open the Apple menu → About This Mac. If it says *Chip: Apple M…*, download \`LightroomRecover-mac-AppleSilicon.zip\`. If it says *Processor: Intel*, download \`LightroomRecover-mac-Intel.zip\`. Unzip and open *Lightroom Recover*.
 
           Step-by-step instructions are in the README."

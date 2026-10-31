@@ -29,7 +29,7 @@ import zlib
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape, quoteattr
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 NS = {
     "x": "adobe:ns:meta/",

@@ -21,9 +21,12 @@ A report of every photo is saved in `Documents` (button **Open report**).
 
 ## Mac: Lightroom Recover.app
 
-Same window and steps as on Windows. Works on Apple Silicon Macs.
+Same window and steps as on Windows. There are two Mac downloads. To pick the right
+one, open the Apple menu → **About This Mac**:
+- **Chip: Apple M1/M2/M3…** → `LightroomRecover-mac-AppleSilicon.zip`
+- **Processor: …Intel…** → `LightroomRecover-mac-Intel.zip`
 
-1. Unzip `LightroomRecover-mac.zip` and drag **Lightroom Recover** to Applications.
+1. Unzip it and drag **Lightroom Recover** to Applications.
 2. The first time, macOS blocks it because it isn't from an identified developer.
    Double-click it once (click **Done**), then open **System Settings → Privacy & Security**,
    scroll down and click **Open Anyway**.
@@ -78,7 +81,7 @@ release. For a test build without a release, use **Actions** → **build** →
 Mac (needs Python 3.12 from python.org, which includes Tk):
 
 ```
-./build_mac.sh        # -> dist/Lightroom Recover.app and dist/LightroomRecover-mac.zip
+./build_mac.sh        # builds for this Mac's chip -> dist/LightroomRecover-mac-<AppleSilicon|Intel>.zip
 ```
 
 Windows:
