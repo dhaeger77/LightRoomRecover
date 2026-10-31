@@ -1,4 +1,4 @@
-# Builds the Windows .exe and the macOS .app on GitHub's machines.
+# Builds the Windows .exe and a universal macOS .app (Apple Silicon + Intel).
 # - "Run workflow" on the Actions tab: test build, files under the run's Artifacts.
 # - Push a tag like v0.2.0: also publishes a GitHub Release with both files.
 name: build
@@ -8,6 +8,11 @@ on:
   push:
     tags: ["v*"]
 
+env:
+  # python.org's macOS installer is universal2 (arm64 + x86_64), which is what
+  # lets PyInstaller build one app for both kinds of Mac.
+  PY_VERSION: "3.12.10"
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -15,45 +20,69 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PY_VERSION }}
       - run: python -m unittest discover tests
       - run: pip install pyinstaller==6.11.1
       - run: pyinstaller --noconfirm --onefile --windowed --name LightroomRecover --distpath dist --workpath build --specpath build lrrecover_gui.py
+      - name: Self-test the exe
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\LightroomRecover.exe -ArgumentList '--self-test','selftest.txt' -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v6
         with:
           name: LightroomRecover-windows
           path: dist/LightroomRecover.exe
 
   macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install universal Python from python.org
+        run: |
+          pkg="python-${PY_VERSION}-macos11.pkg"
+          curl -fsSLO "https://www.python.org/ftp/python/${PY_VERSION}/${pkg}"
+          # Only install it if it's signed by the Python Software Foundation.
+          pkgutil --check-signature "$pkg" | tee sig.txt
+          grep -q "Developer ID Installer: Python Software Foundation" sig.txt
+          sudo installer -pkg "$pkg" -target /
+      - run: chmod +x build_mac.sh && PYTHON=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 ./build_mac.sh
+      - name: Check the app contains both Apple Silicon and Intel code
+        run: |
+          archs=$(lipo -archs "dist/Lightroom Recover.app/Contents/MacOS/Lightroom Recover")
+          echo "app architectures: $archs"
+          [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]]
+      - uses: actions/upload-artifact@v6
+        with:
+          name: LightroomRecover-mac
+          path: dist/LightroomRecover-mac.zip
+
+  # Launch the same universal app on both kinds of Mac.
+  mac-test:
+    needs: macos
     strategy:
       matrix:
         include:
-          - runner: macos-latest       # Apple Silicon
-            chip: AppleSilicon
+          - runner: macos-latest
             arch: arm64
-          - runner: macos-15-intel     # Intel
-            chip: Intel
+          - runner: macos-15-intel
             arch: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/download-artifact@v7
         with:
-          python-version: "3.12"
-      - run: chmod +x build_mac.sh && PYTHON=python ./build_mac.sh
-      - name: Check the app is built for ${{ matrix.arch }}
+          name: LightroomRecover-mac
+      - name: Self-test on ${{ matrix.arch }}
         run: |
-          archs=$(lipo -archs "dist/Lightroom Recover.app/Contents/MacOS/Lightroom Recover")
-          echo "app architecture: $archs"
-          [[ " $archs " == *" ${{ matrix.arch }} "* ]]
-      - uses: actions/upload-artifact@v6
-        with:
-          name: LightroomRecover-mac-${{ matrix.chip }}
-          path: dist/LightroomRecover-mac-${{ matrix.chip }}.zip
+          ditto -x -k LightroomRecover-mac.zip .
+          "./Lightroom Recover.app/Contents/MacOS/Lightroom Recover" --self-test "$PWD/selftest.txt" || true
+          cat selftest.txt
+          grep -q "self-test OK on ${{ matrix.arch }}" selftest.txt
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, macos]
+    needs: [windows, macos, mac-test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -68,11 +97,10 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             files/LightroomRecover.exe \
-            files/LightroomRecover-mac-AppleSilicon.zip \
-            files/LightroomRecover-mac-Intel.zip \
+            files/LightroomRecover-mac.zip \
             --repo "$GITHUB_REPOSITORY" --title "Lightroom Recover $GITHUB_REF_NAME" \
             --notes "**Windows:** download \`LightroomRecover.exe\` and double-click it.
 
-          **Mac:** open the Apple menu → About This Mac. If it says *Chip: Apple M…*, download \`LightroomRecover-mac-AppleSilicon.zip\`. If it says *Processor: Intel*, download \`LightroomRecover-mac-Intel.zip\`. Unzip and open *Lightroom Recover*.
+          **Mac** (Apple Silicon or Intel): download \`LightroomRecover-mac.zip\`, unzip, and open *Lightroom Recover*.
 
           Step-by-step instructions are in the README."

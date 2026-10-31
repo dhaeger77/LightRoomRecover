@@ -21,7 +21,7 @@ so everything runs on his own computer (an Unraid/server version was considered 
     and with leading folders dropped, confirmed by sampling files (`find_moved_roots`).
 - `lrrecover_gui.py` — tkinter window (Preview / Write / Open report).
   Packaged with PyInstaller as `LightroomRecover.exe` and `Lightroom Recover.app`.
-- `.github/workflows/build.yml` builds Windows + Mac (Apple Silicon and Intel; the user's own MacBook Pro is Intel, macOS 26). Version tags publish a Release. `build_mac.sh` builds locally on a Mac.
+- `.github/workflows/build.yml` builds Windows + one universal Mac app (python.org universal2 Python + PyInstaller --target-arch universal2), then launches it with `--self-test` on both an arm64 and an Intel runner. The user's own MacBook Pro is Intel (macOS 26). Version tags publish a Release. `build_mac.sh` builds locally on a Mac.
 
 ## Status (2026-10-31)
 - 13 unit tests pass on Windows and macOS (CI). Tests use a fake catalog built in

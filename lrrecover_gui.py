@@ -201,7 +201,65 @@ class App:
                                        "Now import the photo folders into darktable.")
 
 
+def self_test(out_file: str | None) -> int:
+    """Used by the build machines: read a tiny catalog, write a sidecar, open and
+    close a Tk window. Exit code 0 = OK. Result also written to out_file."""
+    import platform
+    import shutil
+    import sqlite3
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="lrrecover-selftest-")
+    try:
+        photo_dir = os.path.join(tmp, "photos")
+        os.makedirs(photo_dir)
+        open(os.path.join(photo_dir, "IMG_1.CR2"), "wb").close()
+        cat = os.path.join(tmp, "t.lrcat")
+        con = sqlite3.connect(cat)
+        con.executescript(
+            "CREATE TABLE AgLibraryRootFolder (id_local INTEGER PRIMARY KEY, absolutePath);"
+            "CREATE TABLE AgLibraryFolder (id_local INTEGER PRIMARY KEY, rootFolder, pathFromRoot);"
+            "CREATE TABLE AgLibraryFile (id_local INTEGER PRIMARY KEY, folder, baseName, extension);"
+            "CREATE TABLE Adobe_images (id_local INTEGER PRIMARY KEY, rootFile, masterImage, rating);"
+            "CREATE TABLE Adobe_imageDevelopSettings (image, text);")
+        con.execute("INSERT INTO AgLibraryRootFolder VALUES (1, ?)",
+                    (photo_dir.replace("\\", "/") + "/",))
+        con.execute("INSERT INTO AgLibraryFolder VALUES (1, 1, '')")
+        con.execute("INSERT INTO AgLibraryFile VALUES (1, 1, 'IMG_1', 'CR2')")
+        con.execute("INSERT INTO Adobe_images VALUES (1, 1, NULL, 3)")
+        con.execute("INSERT INTO Adobe_imageDevelopSettings VALUES (1, 's = { Exposure2012 = 0.5, }')")
+        con.commit()
+        con.close()
+        res = lrrecover.run(lrrecover.Options(catalog=cat, auto_find=False,
+                                              report=os.path.join(tmp, "r.csv")),
+                            log=lambda m: None)
+        with open(os.path.join(photo_dir, "IMG_1.xmp"), encoding="utf-8") as fh:
+            xmp = fh.read()
+        assert res.written == 1 and 'crs:Exposure2012="0.5"' in xmp, "sidecar check failed"
+        root = tk.Tk()
+        root.withdraw()
+        App(root)
+        root.update()
+        root.destroy()
+        msg = f"self-test OK on {platform.machine()} (Tk {tk.TkVersion}, lrrecover {lrrecover.VERSION})"
+        code = 0
+    except Exception as e:  # report any failure through the exit code
+        msg = f"self-test FAILED on {platform.machine()}: {type(e).__name__}: {e}"
+        code = 1
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if out_file:
+        with open(out_file, "w", encoding="utf-8") as fh:
+            fh.write(msg + "\n")
+    try:
+        print(msg)
+    except Exception:  # windowed builds may have no console
+        pass
+    return code
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
+        sys.exit(self_test(sys.argv[2] if len(sys.argv) > 2 else None))
     root = tk.Tk()
     if os.name == "nt":  # sharp text on high-DPI Windows; macOS handles Retina itself
         try:
