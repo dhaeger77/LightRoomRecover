@@ -1,6 +1,6 @@
 # Builds the Windows .exe and the macOS .app on GitHub's machines.
-# Run it from the Actions tab ("Run workflow"), then download the files
-# from the run's "Artifacts" section.
+# - "Run workflow" on the Actions tab: test build, files under the run's Artifacts.
+# - Push a tag like v0.2.0: also publishes a GitHub Release with both files.
 name: build
 
 on:
@@ -36,3 +36,26 @@ jobs:
         with:
           name: LightroomRecover-mac
           path: dist/LightroomRecover-mac.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: files
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            files/LightroomRecover.exe files/LightroomRecover-mac.zip \
+            --repo "$GITHUB_REPOSITORY" --title "Lightroom Recover $GITHUB_REF_NAME" \
+            --notes "**Windows:** download \`LightroomRecover.exe\` and double-click it.
+          **Mac (Apple Silicon):** download \`LightroomRecover-mac.zip\`, unzip, and open *Lightroom Recover*.
+
+          Step-by-step instructions are in the README."
