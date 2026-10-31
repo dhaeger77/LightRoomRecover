@@ -61,10 +61,17 @@ processes images differently from Adobe.
 
 ### Getting the builds
 
-GitHub Actions builds both versions (`.github/workflows/build.yml`). Open the
-repo's **Actions** tab → **build** → **Run workflow** (or open a finished run) and
-download **LightroomRecover-windows** or **LightroomRecover-mac** under Artifacts.
-Pushing a tag like `v0.1.0` also starts a build.
+Finished versions are on the repo's **Releases** page.
+
+To publish a new one, bump `VERSION` in `lrrecover.py`, then push a tag:
+
+```
+git tag -a v0.2.0 -m "..." && git push origin v0.2.0
+```
+
+GitHub Actions (`.github/workflows/build.yml`) builds both versions and creates the
+release. For a test build without a release, use **Actions** → **build** →
+**Run workflow** and download the files under the run's Artifacts.
 
 ### Building locally
 
