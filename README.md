@@ -165,7 +165,7 @@ python lrrecover.py "D:\Lightroom\Lightroom 5 Catalog.lrcat" --dry-run
 python lrrecover.py "D:\Lightroom\Lightroom 5 Catalog.lrcat"
 
 # Several catalogs, or a folder to search for them (combined in one run)
-python lrrecover.py "D:\Lightroom4.lrcat" "D:\Lightroom5.lrcat"
+python lrrecover.py "D:/Lightroom/2014.lrcat" "D:/Lightroom/2015.lrcat"
 python lrrecover.py "D:\Lightroom"
 ```
 
