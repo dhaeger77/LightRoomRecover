@@ -1,0 +1,8 @@
+﻿.venv/
+build/
+dist/
+__pycache__/
+*.csv
+
+.venv-mac/
+build-mac/

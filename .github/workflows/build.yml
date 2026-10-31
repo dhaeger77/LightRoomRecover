@@ -1,0 +1,38 @@
+# Builds the Windows .exe and the macOS .app on GitHub's machines.
+# Run it from the Actions tab ("Run workflow"), then download the files
+# from the run's "Artifacts" section.
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover tests
+      - run: pip install pyinstaller==6.11.1
+      - run: pyinstaller --noconfirm --onefile --windowed --name LightroomRecover --distpath dist --workpath build --specpath build lrrecover_gui.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LightroomRecover-windows
+          path: dist/LightroomRecover.exe
+
+  macos:
+    runs-on: macos-latest   # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: chmod +x build_mac.sh && PYTHON=python ./build_mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LightroomRecover-mac
+          path: dist/LightroomRecover-mac.zip
