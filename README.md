@@ -34,11 +34,11 @@ edited photos too. That's the only way to keep them looking exactly as you left 
 | App | Cost | Brings over Lightroom edits? |
 |---|---|---|
 | [darktable](https://www.darktable.org/) | Free | Partly, from `.xmp` files: crop, exposure, tone curve, color, spot removal, ratings, keywords |
-| Capture One | Paid | Partly, has a built-in Lightroom catalog importer |
-| ON1 Photo RAW | Paid | Partly, has a Lightroom migration tool |
-| Adobe Lightroom | Subscription | Yes, everything |
-| RawTherapee / ART | Free | No, you start over |
-| digiKam | Free | Ratings and keywords only (photo organizer, not an editor) |
+| [Capture One](https://www.captureone.com/) | Paid | Partly, has a built-in Lightroom catalog importer |
+| [ON1 Photo RAW](https://www.on1.com/products/photo-raw/) | Paid | Partly, has a Lightroom migration tool |
+| [Adobe Lightroom Classic](https://www.adobe.com/products/photoshop-lightroom-classic.html) | Subscription | Yes, everything |
+| [RawTherapee](https://www.rawtherapee.com/) / [ART](https://art.pixls.us/) | Free | No, you start over |
+| [digiKam](https://www.digikam.org/) | Free | Ratings and keywords only (photo organizer, not an editor) |
 
 No app other than Lightroom reproduces Adobe's edits exactly. Expect "close", not identical.
 
