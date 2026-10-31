@@ -21,6 +21,7 @@ Adobe account needed. It also:
 - turns your **collections** and **smart collections** into darktable tags
   (Lightroom's own export leaves them out)
 - shows a summary of your ratings, labels, keywords and collections before writing anything
+- combines several catalogs in one go
 - finds photos on a drive whose letter or folder has changed
 
 **Already have `.xmp` files next to your photos?** Then that setting was on, and
@@ -51,6 +52,10 @@ No app other than Lightroom reproduces Adobe's edits exactly. Expect "close", no
    Windows may say "Windows protected your PC" because the program isn't signed:
    click **More info**, then **Run anyway**.
 3. **Step 1:** choose the catalog (`.lrcat`, usually in `Pictures\Lightroom`).
+   **Several catalogs?** Click **Files...** and select them all, or click
+   **Search folder...** to find every catalog in a folder (Lightroom's automatic
+   backup copies are skipped). They're combined in one go: a photo that's in two
+   catalogs gets the keywords and collections from both.
 4. **Step 2:** leave it empty. The tool searches every drive for the photos, even if
    the drive letter changed. If it can't find them, choose the photo folder here.
 5. Click **Preview**. It lists how many photos have star ratings, color labels,
@@ -87,6 +92,11 @@ photo's history.
 - **Organization:** star ratings, color labels, keywords (with hierarchy),
   collections and collection sets (as `Lightroom|collections|...` tags),
   pick/reject flags (as tags), title, caption, copyright, GPS
+- **Several catalogs:** each photo gets a `Lightroom|catalogs|<catalog name>` tag,
+  and collections keep their catalog name (`Lightroom|collections|2014 Catalog|Favorites`)
+  so same-named collections from different catalogs stay separate. For a photo in more
+  than one catalog, keywords and collections are combined; rating, label and edits
+  come from the catalog that changed it last.
 - **Smart collections:** each becomes a `Lightroom|smart collections|...` tag on the
   photos that match its rules today (a snapshot, so it won't update by itself).
   Rules based on rating, keywords, collections, color label, pick flag, dates, camera,
@@ -153,6 +163,10 @@ python lrrecover.py "D:\Lightroom\Lightroom 5 Catalog.lrcat" --dry-run
 
 # 2. Write the sidecars
 python lrrecover.py "D:\Lightroom\Lightroom 5 Catalog.lrcat"
+
+# Several catalogs, or a folder to search for them (combined in one run)
+python lrrecover.py "D:\Lightroom4.lrcat" "D:\Lightroom5.lrcat"
+python lrrecover.py "D:\Lightroom"
 ```
 
 Photos that moved (new drive letter, copied into another folder, or a Windows

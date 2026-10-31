@@ -28,12 +28,17 @@ so everything runs on his own computer (an Unraid/server version was considered 
 - Preview logs an organization summary (ratings, labels, keywords, collections, smart collections).
 - The brother's priority is ratings, keywords and organization, not edit looks.
   Never commit his catalog/photos (public repo); `samples/` is gitignored.
+- Several catalogs (the brother has multiple; split at ~5k photos): `run()` reads each,
+  evaluates its smart collections, prefixes collection paths with the catalog name,
+  locates photos, then `merge_photos()` merges by final path (keywords/collections union;
+  rating/label/pick/edits from the newest touchTime, else first non-blank).
+  `find_catalogs()` skips `Backups` and `.lrdata` folders.
 - `lrrecover_gui.py` — tkinter window (Preview / Write / Open report).
   Packaged with PyInstaller as `LightroomRecover.exe` and `Lightroom Recover.app`.
 - `.github/workflows/build.yml` builds Windows + one universal Mac app (python.org universal2 Python + PyInstaller --target-arch universal2), then launches it with `--self-test` on both an arm64 and an Intel runner. The user's own MacBook Pro is Intel (macOS 26). Version tags publish a Release. `build_mac.sh` builds locally on a Mac.
 
 ## Status (2026-10-31)
-- 26 unit tests pass on Windows and macOS (CI). Tests use a fake catalog built in
+- 31 unit tests pass on Windows and macOS (CI). Tests use a fake catalog built in
   `tests/test_lrrecover.py`; schema there is a subset of the real one.
 - NOT yet tested: a real Lightroom catalog, the Mac app's window on a real Mac,
   importing the sidecars into real darktable.

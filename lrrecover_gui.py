@@ -35,10 +35,19 @@ class App:
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(1, weight=1)
 
-        ttk.Label(frm, text="1. Lightroom catalog (.lrcat):").grid(row=0, column=0, sticky="w", **pad)
+        ttk.Label(frm, text="1. Lightroom catalog(s):").grid(row=0, column=0, sticky="nw", **pad)
         self.catalog = tk.StringVar()
-        ttk.Entry(frm, textvariable=self.catalog).grid(row=0, column=1, sticky="ew", **pad)
-        ttk.Button(frm, text="Browse...", command=self.pick_catalog).grid(row=0, column=2, **pad)
+        catf = ttk.Frame(frm)
+        catf.grid(row=0, column=1, sticky="ew", **pad)
+        catf.columnconfigure(0, weight=1)
+        ttk.Entry(catf, textvariable=self.catalog).grid(row=0, column=0, sticky="ew")
+        ttk.Label(catf, foreground="gray",
+                  text="One or more .lrcat files (separated by ;), or a folder to search. "
+                       "Several catalogs are combined.").grid(row=1, column=0, sticky="w")
+        catb = ttk.Frame(frm)
+        catb.grid(row=0, column=2, sticky="n", **pad)
+        ttk.Button(catb, text="Files...", command=self.pick_catalog).pack(fill="x")
+        ttk.Button(catb, text="Search folder...", command=self.pick_catalog_folder).pack(fill="x", pady=(4, 0))
 
         ttk.Label(frm, text="2. Photos folder (optional):").grid(row=1, column=0, sticky="w", **pad)
         self.photos = tk.StringVar()
@@ -96,9 +105,23 @@ class App:
         # filter is unreliable there, so allow everything on Mac.
         types = ([("All files", "*")] if sys.platform == "darwin"
                  else [("Lightroom catalog", "*.lrcat"), ("All files", "*.*")])
-        f = filedialog.askopenfilename(title="Choose the Lightroom catalog", filetypes=types)
-        if f:
-            self.catalog.set(os.path.normpath(f))
+        files = filedialog.askopenfilenames(title="Choose the Lightroom catalog(s)", filetypes=types)
+        if files:
+            self.catalog.set("; ".join(os.path.normpath(f) for f in files))
+
+    def pick_catalog_folder(self):
+        d = filedialog.askdirectory(title="Folder to search for Lightroom catalogs")
+        if not d:
+            return
+        found = lrrecover.find_catalogs(d)
+        if not found:
+            messagebox.showinfo(TITLE, "No Lightroom catalogs (.lrcat) found in that folder.\n\n"
+                                       "(Lightroom's Backups folders are skipped on purpose.)")
+            return
+        self.catalog.set("; ".join(os.path.normpath(f) for f in found))
+        self.write_line(f"\nFound {len(found)} catalog{'s' if len(found) != 1 else ''}:")
+        for f in found:
+            self.write_line("  " + f)
 
     def pick_photos(self):
         d = filedialog.askdirectory(title="Where are the photos now?")
@@ -151,9 +174,16 @@ class App:
 
     # -- work ---------------------------------------------------------------
     def start(self, dry_run: bool):
-        cat = self.catalog.get().strip().strip('"')
-        if not cat or not os.path.isfile(cat):
-            messagebox.showwarning(TITLE, "Choose the Lightroom catalog (.lrcat) first.")
+        items = [c.strip().strip('"') for c in self.catalog.get().split(";") if c.strip()]
+        missing = [c for c in items if not os.path.exists(c)]
+        if not items or missing:
+            messagebox.showwarning(
+                TITLE, "Choose the Lightroom catalog(s) first." if not items
+                else "Can't find:\n" + "\n".join(missing))
+            return
+        cats = lrrecover.expand_catalog_args(items)
+        if not cats:
+            messagebox.showwarning(TITLE, "No Lightroom catalogs (.lrcat) found.")
             return
         if not dry_run and not messagebox.askyesno(
                 TITLE, "Write .xmp sidecar files next to the photos?\n\n"
@@ -161,7 +191,7 @@ class App:
             return
         photos = self.photos.get().strip().strip('"')
         opts = lrrecover.Options(
-            catalog=cat, dry_run=dry_run, search_dirs=[photos] if photos else [],
+            catalogs=cats, dry_run=dry_run, search_dirs=[photos] if photos else [],
             overwrite=self.overwrite.get(), edited_only=self.edited_only.get(),
             report=report_path())
         self.set_busy(True)

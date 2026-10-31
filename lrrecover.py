@@ -241,6 +241,8 @@ class Photo:
     # Searchable details used by smart collection rules (dates, camera, lens, ...).
     facts: dict = field(default_factory=dict)
     smart_collections: list[str] = field(default_factory=list)
+    # Which catalogs the photo came from (only filled in when reading several).
+    catalogs: list[str] = field(default_factory=list)
 
 
 def open_catalog_copy(catalog: str, workdir: str) -> sqlite3.Connection:
@@ -677,6 +679,7 @@ def build_xmp(p: Photo, include_collections: bool = True,
         children.append(li_block("dc:rights", "Alt", rights[:1], lang=True))
 
     tags = list(p.keywords)
+    tags += [f"Lightroom|catalogs|{c}" for c in p.catalogs]
     if include_collections:
         tags += [f"Lightroom|collections|{c}" for c in p.collections]
     if include_smart:
@@ -835,7 +838,8 @@ def sidecar_path(photo_path: str, out_dir: str | None, common_root: str | None) 
 
 @dataclass
 class Options:
-    catalog: str
+    catalog: str = ""                                  # one catalog, or...
+    catalogs: list = field(default_factory=list)       # ...several, merged into one result
     dry_run: bool = False
     remaps: list = field(default_factory=list)        # [(old_prefix, new_prefix)]
     auto_find: bool = True
@@ -919,31 +923,132 @@ def organization_summary(photos: list[Photo], smart_results: list[dict]) -> tupl
     return s, lines
 
 
+# ---------------------------------------------------------------------------
+# Several catalogs
+# ---------------------------------------------------------------------------
+
+def _skip_dir(name: str) -> bool:
+    n = name.lower()
+    # Lightroom's automatic backups are older copies of the same catalogs;
+    # .lrdata / .lrcat-data folders hold previews and other caches.
+    return (n == "backups" or n.endswith((".lrdata", ".lrcat-data"))
+            or n.startswith(".") or n in ("$recycle.bin", "system volume information"))
+
+
+def find_catalogs(folder: str) -> list[str]:
+    """All .lrcat files under folder, skipping Lightroom backup and cache folders."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(folder):
+        dirnames[:] = [d for d in dirnames if not _skip_dir(d)]
+        for f in filenames:
+            if f.lower().endswith(".lrcat"):
+                found.append(os.path.join(dirpath, f))
+    return sorted(found, key=str.lower)
+
+
+def expand_catalog_args(items: list[str]) -> list[str]:
+    """Files are used as given; folders are searched for catalogs. Duplicates dropped."""
+    out, seen = [], set()
+    for item in items:
+        paths = find_catalogs(item) if os.path.isdir(item) else [item]
+        for p in paths:
+            key = os.path.normcase(os.path.realpath(p))
+            if key not in seen:
+                seen.add(key)
+                out.append(p)
+    return out
+
+
+def catalog_names(paths: list[str]) -> dict[str, str]:
+    """Short readable name per catalog: the file name, plus the folder if two clash."""
+    base = {p: os.path.splitext(os.path.basename(p))[0] for p in paths}
+    counts: dict[str, int] = {}
+    for b in base.values():
+        counts[b.lower()] = counts.get(b.lower(), 0) + 1
+    names = {}
+    for p, b in base.items():
+        if counts[b.lower()] > 1:
+            b = f"{os.path.basename(os.path.dirname(os.path.abspath(p)))} - {b}"
+        names[p] = b.replace("|", "-")
+    return names
+
+
+def merge_photos(photos: list[Photo]) -> tuple[list[Photo], int]:
+    """Same photo file in several catalogs -> one Photo. Keywords, collections and
+    smart collections are combined. Rating, label, pick and edits come from the
+    catalog that last touched the photo, unless it has none there."""
+    groups: dict[str, list[Photo]] = {}
+    for p in photos:
+        groups.setdefault(os.path.normcase(os.path.normpath(p.path)), []).append(p)
+    merged, overlaps = [], 0
+    for group in groups.values():
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        overlaps += 1
+        group.sort(key=lambda p: (float(p.facts.get("touch_time") or 0), bool(p.develop)),
+                   reverse=True)
+        m = group[0]
+        for o in group[1:]:
+            if not m.rating and o.rating:
+                m.rating = o.rating
+            if not m.label and o.label:
+                m.label = o.label
+            if not m.pick and o.pick:
+                m.pick = o.pick
+            if not m.develop and o.develop:
+                m.develop, m.develop_error = o.develop, o.develop_error
+            if m.stored_xmp is None:
+                m.stored_xmp = o.stored_xmp
+            m.gps = m.gps or o.gps
+            m.caption = m.caption or o.caption
+            m.copyright = m.copyright or o.copyright
+            m.virtual_copies = max(m.virtual_copies, o.virtual_copies)
+            for attr in ("keywords", "collections", "smart_collections", "catalogs"):
+                lst = getattr(m, attr)
+                lst += [x for x in getattr(o, attr) if x not in lst]
+            for k, v in o.facts.items():
+                m.facts.setdefault(k, v)
+        merged.append(m)
+    return merged, overlaps
+
+
 def run(opts: Options, log=print, confirm_moves=None) -> Result:
     """Do the whole job. `log` gets progress lines. `confirm_moves` is called with
     the detected [(old, new, count)] and returns False to cancel."""
     res = Result()
-    log(f"Reading catalog (working on a copy): {opts.catalog}")
-    with tempfile.TemporaryDirectory(prefix="lrrecover-") as tmp:
-        con = open_catalog_copy(opts.catalog, tmp)
-        try:
-            photos, warnings = read_catalog(con)
-            smart_defs = read_smart_collections(con) if opts.smart_collections else []
-        finally:
-            con.close()
-    for w in warnings:
-        log("warning: " + w)
-    res.photos = len(photos)
-    res.edited = sum(1 for p in photos if p.develop)
-    log(f"Found {res.photos} photos ({res.edited} with edits).")
-
-    if smart_defs:
-        res.smart_results = smartcollections.evaluate(smart_defs, photos)
-    res.summary, summary_lines = organization_summary(photos, res.smart_results)
-    log("")
-    for line in summary_lines:
-        log(line)
-    log("")
+    cats = list(opts.catalogs) or [opts.catalog]
+    multi = len(cats) > 1
+    names = catalog_names(cats)
+    photos: list[Photo] = []
+    per_catalog = []
+    for cat in cats:
+        log(f"Reading catalog (working on a copy): {cat}")
+        with tempfile.TemporaryDirectory(prefix="lrrecover-") as tmp:
+            con = open_catalog_copy(cat, tmp)
+            try:
+                cat_photos, warnings = read_catalog(con)
+                smart_defs = read_smart_collections(con) if opts.smart_collections else []
+            finally:
+                con.close()
+        for w in warnings:
+            log("warning: " + w)
+        if multi:
+            for d in smart_defs:
+                d["path"] = f"{names[cat]}|{d['path']}"
+        # Evaluate rules before collection names get the catalog prefix below.
+        if smart_defs:
+            res.smart_results += smartcollections.evaluate(smart_defs, cat_photos)
+        if multi:
+            # Keep collections from different catalogs apart ("Favorites" in two
+            # catalogs are different collections).
+            for p in cat_photos:
+                p.collections = [f"{names[cat]}|{c}" for c in p.collections]
+                p.catalogs = [names[cat]]
+        edited = sum(1 for p in cat_photos if p.develop)
+        log(f"  {len(cat_photos):,} photos ({edited:,} with edits)")
+        per_catalog.append((names[cat], len(cat_photos)))
+        photos += cat_photos
 
     if opts.remaps:
         apply_remaps(photos, opts.remaps)
@@ -960,6 +1065,31 @@ def run(opts: Options, log=print, confirm_moves=None) -> Result:
                 return res
             apply_remaps(photos, [(o, n) for o, n, _ in moves])
             res.moves = moves
+
+    # Merge after locating, so the same photo listed under an old and a new drive
+    # letter in two catalogs still counts as one photo.
+    overlaps = 0
+    if multi:
+        photos, overlaps = merge_photos(photos)
+    res.photos = len(photos)
+    res.edited = sum(1 for p in photos if p.develop)
+    res.summary, summary_lines = organization_summary(photos, res.smart_results)
+    res.summary["catalogs"] = per_catalog
+    res.summary["in_several_catalogs"] = overlaps
+    log("")
+    if multi:
+        log(f"Catalogs: {len(cats)}")
+        for name, n in per_catalog:
+            log(f"  {name}: {n:,} photos")
+        if overlaps:
+            log(f"  {overlaps:,} photos are in more than one catalog; their keywords and "
+                "collections were combined.")
+        log("")
+    if multi:
+        summary_lines[0] = "Organization found in the catalogs (combined):"
+    for line in summary_lines:
+        log(line)
+    log("")
 
     by_sidecar: dict[str, list[Photo]] = {}
     paths = [p.path for p in photos]
@@ -1035,7 +1165,9 @@ def run(opts: Options, log=print, confirm_moves=None) -> Result:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Write Lightroom catalog edits as XMP sidecars that darktable can import.")
-    ap.add_argument("catalog", help="path to the .lrcat file")
+    ap.add_argument("catalog", nargs="+",
+                    help=".lrcat file(s), or folder(s) to search for catalogs "
+                         "(Lightroom backup folders are skipped). Several catalogs are merged.")
     ap.add_argument("--dry-run", action="store_true",
                     help="don't write anything, just report what would happen")
     ap.add_argument("--remap", action="append", default=[], metavar="OLD=NEW",
@@ -1060,8 +1192,13 @@ def main(argv=None) -> int:
     ap.add_argument("--version", action="version", version=VERSION)
     args = ap.parse_args(argv)
 
-    if not os.path.isfile(args.catalog):
-        print(f"Catalog not found: {args.catalog}", file=sys.stderr)
+    for c in args.catalog:
+        if not os.path.exists(c):
+            print(f"Catalog not found: {c}", file=sys.stderr)
+            return 2
+    catalogs = expand_catalog_args(args.catalog)
+    if not catalogs:
+        print("No .lrcat files found.", file=sys.stderr)
         return 2
     remaps = []
     for r in args.remap:
@@ -1078,7 +1215,7 @@ def main(argv=None) -> int:
         except EOFError:
             return True
 
-    opts = Options(catalog=args.catalog, dry_run=args.dry_run, remaps=remaps,
+    opts = Options(catalogs=catalogs, dry_run=args.dry_run, remaps=remaps,
                    auto_find=not args.no_auto_find, search_dirs=args.photos_dir,
                    out_dir=args.out_dir, overwrite=args.overwrite,
                    edited_only=args.edited_only, collections=not args.no_collections,
