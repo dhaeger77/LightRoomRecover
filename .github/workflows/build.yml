@@ -12,14 +12,14 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m unittest discover tests
       - run: pip install pyinstaller==6.11.1
       - run: pyinstaller --noconfirm --onefile --windowed --name LightroomRecover --distpath dist --workpath build --specpath build lrrecover_gui.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: LightroomRecover-windows
           path: dist/LightroomRecover.exe
@@ -27,12 +27,12 @@ jobs:
   macos:
     runs-on: macos-latest   # Apple Silicon
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: chmod +x build_mac.sh && PYTHON=python ./build_mac.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: LightroomRecover-mac
           path: dist/LightroomRecover-mac.zip
