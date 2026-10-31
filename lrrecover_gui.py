@@ -68,7 +68,12 @@ class App:
         self.write_btn.pack(side="left", padx=(0, 8))
         self.report_btn = ttk.Button(btns, text="Open report", command=self.open_report,
                                      state="disabled")
-        self.report_btn.pack(side="left")
+        self.report_btn.pack(side="left", padx=(0, 8))
+        self.smart_btn = ttk.Button(btns, text="Smart collections list",
+                                    command=lambda: self.open_file(self.last_smart),
+                                    state="disabled")
+        self.smart_btn.pack(side="left")
+        self.last_smart = None
 
         logf = ttk.Frame(frm)
         logf.grid(row=5, column=0, columnspan=3, sticky="nsew", **pad)
@@ -114,12 +119,16 @@ class App:
         self.root.configure(cursor="watch" if busy else "")
 
     def open_report(self):
-        if not self.last_report or not os.path.exists(self.last_report):
+        self.open_file(self.last_report)
+
+    @staticmethod
+    def open_file(path):
+        if not path or not os.path.exists(path):
             return
         if os.name == "nt":
-            os.startfile(self.last_report)  # noqa: S606
+            os.startfile(path)  # noqa: S606
         else:
-            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", self.last_report])
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", path])
 
     def poll(self):
         try:
@@ -189,6 +198,8 @@ class App:
             return
         self.last_report = res.report
         self.report_btn.configure(state="normal")
+        self.last_smart = res.smart_listing or None
+        self.smart_btn.configure(state="normal" if self.last_smart else "disabled")
         if res.missing_photo:
             self.write_line(
                 f"\n{res.missing_photo} photos were not found. Plug in the drive they're on, "

@@ -29,7 +29,9 @@ import zlib
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape, quoteattr
 
-VERSION = "0.1.1"
+import smartcollections
+
+VERSION = "0.2.0"
 
 NS = {
     "x": "adobe:ns:meta/",
@@ -236,6 +238,9 @@ class Photo:
     copyright: str = ""
     title: str = ""
     virtual_copies: int = 0
+    # Searchable details used by smart collection rules (dates, camera, lens, ...).
+    facts: dict = field(default_factory=dict)
+    smart_collections: list[str] = field(default_factory=list)
 
 
 def open_catalog_copy(catalog: str, workdir: str) -> sqlite3.Connection:
@@ -327,7 +332,9 @@ def read_catalog(con: sqlite3.Connection) -> tuple[list[Photo], list[str]]:
            "f.baseName AS base", "f.extension AS ext"]
     for col, alias in [("fileFormat", "fmt"), ("rating", "rating"), ("colorLabels", "label"),
                        ("pick", "pick"), ("orientation", "orient"),
-                       ("fileWidth", "w"), ("fileHeight", "h")]:
+                       ("fileWidth", "w"), ("fileHeight", "h"),
+                       ("captureTime", "capture_time"), ("touchTime", "touch_time"),
+                       ("copyName", "copy_name"), ("aspectRatioCache", "aspect")]:
         sel.append(f"i.{col} AS {alias}" if col in img_cols else f"NULL AS {alias}")
 
     query = f"""
@@ -355,15 +362,30 @@ def read_catalog(con: sqlite3.Connection) -> tuple[list[Photo], list[str]]:
             width=int(r["w"]) if r["w"] else None,
             height=int(r["h"]) if r["h"] else None,
         )
+        p.facts.update(
+            capture_time=r["capture_time"], touch_time=r["touch_time"],
+            copy_name=r["copy_name"], aspect=r["aspect"],
+            filename=(r["base"] or "") + ("." + r["ext"] if r["ext"] else ""),
+            folder=root + (r["folder"] or ""),
+        )
         photos[p.image_id] = p
     for mid, n in vc_count.items():
         if mid in photos:
             photos[mid].virtual_copies = n
 
     if "Adobe_imageDevelopSettings" in tables:
-        for r in con.execute("SELECT image, text FROM Adobe_imageDevelopSettings"):
+        dcols = _columns(con, "Adobe_imageDevelopSettings")
+        extra = ", ".join(f"{c} AS {c}" if c in dcols else f"NULL AS {c}"
+                          for c in ("hasDevelopAdjustmentsEx", "grayscale"))
+        for r in con.execute(f"SELECT image, text, {extra} FROM Adobe_imageDevelopSettings"):
             p = photos.get(r["image"])
-            if not p or not r["text"]:
+            if not p:
+                continue
+            if r["grayscale"] is not None:
+                p.facts["grayscale"] = bool(r["grayscale"])
+            if r["hasDevelopAdjustmentsEx"] is not None:
+                p.facts["has_adjustments"] = (r["hasDevelopAdjustmentsEx"] or 0) > 0
+            if not r["text"]:
                 continue
             try:
                 p.develop = parse_lua_settings(r["text"])
@@ -408,6 +430,31 @@ def read_catalog(con: sqlite3.Connection) -> tuple[list[Photo], list[str]]:
             if p:
                 p.gps = (float(r["gpsLatitude"]), float(r["gpsLongitude"]))
 
+    if "image" in exif_cols:
+        # Camera, lens, exposure details: only used for smart collection rules.
+        def interned(table, ref, alias):
+            if ref in exif_cols and table in tables:
+                return (f"(SELECT value FROM {table} WHERE id_local = e.{ref}) AS {alias}")
+            return f"NULL AS {alias}"
+        cols = [interned("AgInternedExifCameraModel", "cameraModelRef", "camera"),
+                interned("AgInternedExifLens", "lensRef", "lens"),
+                interned("AgInternedExifCameraSN", "cameraSNRef", "camera_serial")]
+        for col, alias in [("isoSpeedRating", "iso"), ("focalLength", "focal_length"),
+                           ("aperture", "aperture"), ("shutterSpeed", "shutter"),
+                           ("hasGPS", "has_gps"), ("flashFired", "flash")]:
+            cols.append(f"e.{col} AS {alias}" if col in exif_cols else f"NULL AS {alias}")
+        for r in con.execute(f"SELECT e.image AS image, {', '.join(cols)} "
+                             "FROM AgHarvestedExifMetadata e"):
+            p = photos.get(r["image"])
+            if p:
+                for k in ("camera", "lens", "camera_serial", "iso", "focal_length",
+                          "aperture", "shutter", "has_gps", "flash"):
+                    if r[k] is not None:
+                        p.facts[k] = r[k]
+    for p in photos.values():
+        if p.gps:
+            p.facts["has_gps"] = True
+
     iptc_cols = _columns(con, "AgLibraryIPTC")
     if "image" in iptc_cols:
         want = [c for c in ("caption", "copyright") if c in iptc_cols]
@@ -418,7 +465,63 @@ def read_catalog(con: sqlite3.Connection) -> tuple[list[Photo], list[str]]:
                     p.caption = (r["caption"] if "caption" in want else "") or ""
                     p.copyright = (r["copyright"] if "copyright" in want else "") or ""
 
+    hiptc = _columns(con, "AgHarvestedIptcMetadata")
+    if {"image", "creatorRef"} <= hiptc and "AgInternedIptcCreator" in tables:
+        for r in con.execute("SELECT h.image AS image, c.value AS creator "
+                             "FROM AgHarvestedIptcMetadata h "
+                             "JOIN AgInternedIptcCreator c ON c.id_local = h.creatorRef"):
+            p = photos.get(r["image"])
+            if p and r["creator"]:
+                p.facts["creator"] = r["creator"]
+
+    for p in photos.values():
+        title = _stored_list(p.stored_xmp, "dc", "title")
+        if title:
+            p.facts["title"] = title[0]
+        if not p.facts.get("creator"):
+            creator = _stored_list(p.stored_xmp, "dc", "creator")
+            if creator:
+                p.facts["creator"] = creator[0]
+        if p.caption:
+            p.facts["caption"] = p.caption
+        p.facts.setdefault("has_adjustments", bool(p.develop))
+
     return list(photos.values()), warnings
+
+
+SMART_COLLECTION_ID = "com.adobe.ag.library.smart_collection"
+
+
+def read_smart_collections(con: sqlite3.Connection) -> list[dict]:
+    """Smart collection names (with their collection-set path) and parsed rules."""
+    tables = _tables(con)
+    if not {"AgLibraryCollection", "AgLibraryCollectionContent"} <= tables:
+        return []
+    cpaths = _collection_paths(con)
+    ccols = _columns(con, "AgLibraryCollection")
+    where = "cont.owningModule = 'ag.library.smart_collection'"
+    if "creationId" in ccols:
+        where = f"({where} OR col.creationId = '{SMART_COLLECTION_ID}')"
+    out, seen = [], set()
+    for r in con.execute(
+            "SELECT col.id_local AS id, cont.content AS content, cont.owningModule AS module "
+            "FROM AgLibraryCollection col "
+            "JOIN AgLibraryCollectionContent cont ON cont.collection = col.id_local "
+            f"WHERE {where} ORDER BY col.id_local"):
+        if r["module"] != "ag.library.smart_collection" or r["id"] in seen:
+            continue
+        seen.add(r["id"])
+        entry = {"id": r["id"], "path": cpaths.get(r["id"]) or f"Smart collection {r['id']}",
+                 "rules": None, "error": ""}
+        try:
+            rules = parse_lua_settings(r["content"] or "")
+            if isinstance(rules, dict) and "value" in rules and isinstance(rules["value"], dict):
+                rules = rules["value"]  # exported .lrsmart layout
+            entry["rules"] = rules
+        except (LuaParseError, RecursionError) as e:
+            entry["error"] = str(e)
+        out.append(entry)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +613,8 @@ def build_develop_attrs(dev: dict) -> tuple[dict[str, str], dict[str, list[str]]
     return scalars, lists, skipped
 
 
-def build_xmp(p: Photo, include_collections: bool = True) -> tuple[str, list[str]]:
+def build_xmp(p: Photo, include_collections: bool = True,
+              include_smart: bool = True) -> tuple[str, list[str]]:
     notes: list[str] = []
     attrs: list[tuple[str, str]] = []
     children: list[str] = []
@@ -575,6 +679,8 @@ def build_xmp(p: Photo, include_collections: bool = True) -> tuple[str, list[str
     tags = list(p.keywords)
     if include_collections:
         tags += [f"Lightroom|collections|{c}" for c in p.collections]
+    if include_smart:
+        tags += [f"Lightroom|smart collections|{c}" for c in p.smart_collections]
     if p.pick == 1:
         tags.append("Lightroom|picked")
     elif p.pick == -1:
@@ -738,6 +844,7 @@ class Options:
     overwrite: bool = False
     edited_only: bool = False
     collections: bool = True
+    smart_collections: bool = True
     report: str = "lrrecover-report.csv"
 
 
@@ -753,7 +860,63 @@ class Result:
     not_edited: int = 0
     moves: list = field(default_factory=list)
     report: str = ""
+    smart_listing: str = ""
+    smart_results: list = field(default_factory=list)
+    summary: dict = field(default_factory=dict)
     cancelled: bool = False
+
+
+def organization_summary(photos: list[Photo], smart_results: list[dict]) -> tuple[dict, list[str]]:
+    """Counts of ratings, labels, keywords and collections, so it's easy to see
+    nothing was left behind."""
+    n = len(photos)
+    stars = {s: sum(1 for p in photos if p.rating == s) for s in range(1, 6)}
+    rated = sum(stars.values())
+    labels: dict[str, int] = {}
+    for p in photos:
+        if p.label:
+            labels[p.label] = labels.get(p.label, 0) + 1
+    kw_photos = sum(1 for p in photos if p.keywords)
+    kw_distinct = len({k for p in photos for k in p.keywords})
+    colls = {c for p in photos for c in p.collections}
+    coll_photos = sum(1 for p in photos if p.collections)
+    smart_tagged = [r for r in smart_results if r["status"] == "tagged"]
+    s = {
+        "photos": n, "rated": rated, "stars": stars, "labels": labels,
+        "picked": sum(1 for p in photos if p.pick == 1),
+        "rejected": sum(1 for p in photos if p.pick == -1),
+        "keyword_photos": kw_photos, "keywords": kw_distinct,
+        "collections": len(colls), "collection_photos": coll_photos,
+        "smart_total": len(smart_results), "smart_tagged": len(smart_tagged),
+        "titled": sum(1 for p in photos if p.facts.get("title") or p.caption),
+        "gps": sum(1 for p in photos if p.gps or _stored(p.stored_xmp, "exif", "GPSLatitude")),
+        "edited": sum(1 for p in photos if p.develop),
+        "virtual_copies": sum(p.virtual_copies for p in photos),
+    }
+
+    def pct(x):
+        return f"{x:,}" + (f" ({round(100 * x / n)}%)" if n else "")
+
+    lines = ["Organization found in the catalog:",
+             f"  Photos:              {n:,}",
+             f"  Star ratings:        {pct(rated)}"
+             + ("   (" + ", ".join(f"{k} star{'s' if k > 1 else ''}: {v:,}"
+                              for k, v in sorted(stars.items(), reverse=True) if v) + ")"
+                if rated else ""),
+             f"  Color labels:        {sum(labels.values()):,}"
+             + ("   " + ", ".join(f"{k} {v:,}" for k, v in sorted(labels.items())) if labels else ""),
+             f"  Picked / rejected:   {s['picked']:,} / {s['rejected']:,}",
+             f"  Keywords:            {pct(kw_photos)} tagged, {kw_distinct:,} different keywords",
+             f"  Collections:         {len(colls):,}, holding {coll_photos:,} photo{'' if coll_photos == 1 else 's'}",
+             f"  Smart collections:   {s['smart_total']:,}"
+             + (f" ({s['smart_tagged']:,} turned into tags, the rest listed with their rules)"
+                if s["smart_total"] else ""),
+             f"  Titles / captions:   {s['titled']:,}",
+             f"  GPS locations:       {s['gps']:,}",
+             f"  Develop edits:       {pct(s['edited'])}"]
+    if s["virtual_copies"]:
+        lines.append(f"  Virtual copies:      {s['virtual_copies']:,} (not exported; originals are tagged)")
+    return s, lines
 
 
 def run(opts: Options, log=print, confirm_moves=None) -> Result:
@@ -765,6 +928,7 @@ def run(opts: Options, log=print, confirm_moves=None) -> Result:
         con = open_catalog_copy(opts.catalog, tmp)
         try:
             photos, warnings = read_catalog(con)
+            smart_defs = read_smart_collections(con) if opts.smart_collections else []
         finally:
             con.close()
     for w in warnings:
@@ -772,6 +936,14 @@ def run(opts: Options, log=print, confirm_moves=None) -> Result:
     res.photos = len(photos)
     res.edited = sum(1 for p in photos if p.develop)
     log(f"Found {res.photos} photos ({res.edited} with edits).")
+
+    if smart_defs:
+        res.smart_results = smartcollections.evaluate(smart_defs, photos)
+    res.summary, summary_lines = organization_summary(photos, res.smart_results)
+    log("")
+    for line in summary_lines:
+        log(line)
+    log("")
 
     if opts.remaps:
         apply_remaps(photos, opts.remaps)
@@ -817,7 +989,8 @@ def run(opts: Options, log=print, confirm_moves=None) -> Result:
             if not opts.out_dir:  # with --out-dir, still write; can be copied later
                 rows.append([p.path, out, "photo_not_found", ""])
                 continue
-        xml, notes = build_xmp(p, include_collections=opts.collections)
+        xml, notes = build_xmp(p, include_collections=opts.collections,
+                               include_smart=opts.smart_collections)
         if os.path.exists(out) and not opts.overwrite:
             res.exists += 1
             rows.append([p.path, out, "skipped_xmp_exists", ""])
@@ -839,6 +1012,9 @@ def run(opts: Options, log=print, confirm_moves=None) -> Result:
         wr.writerow(["photo", "sidecar", "status", "notes"])
         wr.writerows(rows)
     res.report = os.path.abspath(opts.report)
+    if res.smart_results:
+        res.smart_listing = os.path.splitext(res.report)[0] + "-smart-collections.txt"
+        smartcollections.write_listing(res.smart_results, res.smart_listing)
 
     log("")
     if opts.dry_run:
@@ -851,6 +1027,8 @@ def run(opts: Options, log=print, confirm_moves=None) -> Result:
     if opts.edited_only:
         log(f"Skipped, not edited:      {res.not_edited}")
     log(f"Report: {res.report}")
+    if res.smart_listing:
+        log(f"Smart collections and their rules: {res.smart_listing}")
     return res
 
 
@@ -875,6 +1053,8 @@ def main(argv=None) -> int:
                     help="only photos with develop settings")
     ap.add_argument("--no-collections", action="store_true",
                     help="don't turn collections into 'Lightroom|collections|...' tags")
+    ap.add_argument("--no-smart-collections", action="store_true",
+                    help="don't turn smart collections into 'Lightroom|smart collections|...' tags")
     ap.add_argument("--report", default="lrrecover-report.csv",
                     help="CSV report path (default: %(default)s)")
     ap.add_argument("--version", action="version", version=VERSION)
@@ -902,7 +1082,7 @@ def main(argv=None) -> int:
                    auto_find=not args.no_auto_find, search_dirs=args.photos_dir,
                    out_dir=args.out_dir, overwrite=args.overwrite,
                    edited_only=args.edited_only, collections=not args.no_collections,
-                   report=args.report)
+                   smart_collections=not args.no_smart_collections, report=args.report)
     res = run(opts, confirm_moves=confirm)
     if res.missing_photo:
         print("\nSome photos weren't found. Plug in the drive they're on, or use "

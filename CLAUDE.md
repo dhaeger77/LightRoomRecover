@@ -19,12 +19,21 @@ so everything runs on his own computer (an Unraid/server version was considered 
     pick/reject and virtual copies → tags. RAW wins when RAW+JPG share a base name.
   - Finds moved photos: tries the catalog's root folders on every drive / `/Volumes`
     and with leading folders dropped, confirmed by sampling files (`find_moved_roots`).
+- `smartcollections.py` — decodes smart collection rules (Lua in AgLibraryCollectionContent,
+  owningModule 'ag.library.smart_collection') and evaluates them per photo in Python.
+  Matching photos get `Lightroom|smart collections|...` tags; any unsupported rule means
+  the collection is only listed (in `<report>-smart-collections.txt`), never mis-tagged.
+  Format details were learned from fdenivac/Lightroom-SQL-tools (GPL — don't copy code).
+  Unverified on a real catalog: `_units` key for inLast, labelColor numbers, shutter direction.
+- Preview logs an organization summary (ratings, labels, keywords, collections, smart collections).
+- The brother's priority is ratings, keywords and organization, not edit looks.
+  Never commit his catalog/photos (public repo); `samples/` is gitignored.
 - `lrrecover_gui.py` — tkinter window (Preview / Write / Open report).
   Packaged with PyInstaller as `LightroomRecover.exe` and `Lightroom Recover.app`.
 - `.github/workflows/build.yml` builds Windows + one universal Mac app (python.org universal2 Python + PyInstaller --target-arch universal2), then launches it with `--self-test` on both an arm64 and an Intel runner. The user's own MacBook Pro is Intel (macOS 26). Version tags publish a Release. `build_mac.sh` builds locally on a Mac.
 
 ## Status (2026-10-31)
-- 13 unit tests pass on Windows and macOS (CI). Tests use a fake catalog built in
+- 26 unit tests pass on Windows and macOS (CI). Tests use a fake catalog built in
   `tests/test_lrrecover.py`; schema there is a subset of the real one.
 - NOT yet tested: a real Lightroom catalog, the Mac app's window on a real Mac,
   importing the sidecars into real darktable.

@@ -18,7 +18,9 @@ shows your RAW files unedited.
 This tool reads the catalog directly and writes those files. No Lightroom or
 Adobe account needed. It also:
 
-- turns your **collections** into darktable tags (Lightroom's own export leaves them out)
+- turns your **collections** and **smart collections** into darktable tags
+  (Lightroom's own export leaves them out)
+- shows a summary of your ratings, labels, keywords and collections before writing anything
 - finds photos on a drive whose letter or folder has changed
 
 **Already have `.xmp` files next to your photos?** Then that setting was on, and
@@ -51,10 +53,12 @@ No app other than Lightroom reproduces Adobe's edits exactly. Expect "close", no
 3. **Step 1:** choose the catalog (`.lrcat`, usually in `Pictures\Lightroom`).
 4. **Step 2:** leave it empty. The tool searches every drive for the photos, even if
    the drive letter changed. If it can't find them, choose the photo folder here.
-5. Click **Preview** and check the numbers, then **Write sidecar files**.
-   If the photos moved, it asks before using the new location.
+5. Click **Preview**. It lists how many photos have star ratings, color labels,
+   keywords and collections, so you can check nothing is missing. Then click
+   **Write sidecar files**. If the photos moved, it asks before using the new location.
 
-A report of every photo is saved in `Documents` (button **Open report**).
+A report of every photo is saved in `Documents` (button **Open report**). So is a
+list of your smart collections and their rules (button **Smart collections list**).
 
 ## Mac: Lightroom Recover.app
 
@@ -81,8 +85,15 @@ photo's history.
 - **Edits:** crop and straighten, exposure, blacks, tone curve (point and parametric),
   HSL color adjustments, split toning, clarity, post-crop vignette, grain, spot removal
 - **Organization:** star ratings, color labels, keywords (with hierarchy),
-  collections (as `Lightroom|collections|...` tags), pick/reject flags (as tags),
-  title, caption, copyright, GPS
+  collections and collection sets (as `Lightroom|collections|...` tags),
+  pick/reject flags (as tags), title, caption, copyright, GPS
+- **Smart collections:** each becomes a `Lightroom|smart collections|...` tag on the
+  photos that match its rules today (a snapshot, so it won't update by itself).
+  Rules based on rating, keywords, collections, color label, pick flag, dates, camera,
+  lens, file name, folder, file type, ISO, focal length, aperture, shutter speed, GPS
+  and edits are supported. A smart collection with any other rule is not tagged, so
+  nothing is tagged wrongly. All of them are listed with their rules so you can
+  recreate them as saved searches.
 
 **Not carried over by darktable's importer:** white balance, highlights/shadows/whites,
 contrast, vibrance/saturation, sharpening, noise reduction, lens corrections,
@@ -166,3 +177,4 @@ python lrrecover.py CATALOG --remap "D:/Photos=E:/Old Drive/Photos"   # exact ma
 | `--overwrite` | Replace existing `.xmp` files (keeps the old one as `.xmp.bak`) |
 | `--edited-only` | Skip photos that have no develop edits |
 | `--no-collections` | Don't turn collections into tags |
+| `--no-smart-collections` | Don't turn smart collections into tags |
