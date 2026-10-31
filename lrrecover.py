@@ -783,9 +783,14 @@ def _candidate_roots(old_root: str, search_dirs: list[str]):
 
 
 def find_moved_roots(photos: list[Photo], search_dirs: list[str] | None = None,
-                     samples: int = 8) -> list[tuple[str, str, int]]:
+                     samples: int = 8) -> list[tuple[str, str, int, int]]:
     """For each catalog root folder whose photos are missing, look for where they
-    are now. Returns [(old_root, new_root, photo_count)]."""
+    are now. Returns [(old_root, new_root, photos_found_there, photos_in_root)].
+
+    First a quick check: most of a sample of the missing photos must be at the
+    new place (the whole library moved). If no place passes, look for a partial
+    copy (a few sample folders, or a library split over two drives): count every
+    missing photo found at each place, keeping the same folders below the root."""
     by_root: dict[str, list[Photo]] = {}
     for p in photos:
         by_root.setdefault(p.root, []).append(p)
@@ -794,21 +799,48 @@ def find_moved_roots(photos: list[Photo], search_dirs: list[str] | None = None,
         missing = [p for p in group if not os.path.exists(p.path)]
         if not missing or len(missing) < len(group) / 2:
             continue  # nothing moved (a few deleted files don't count)
+        cands = [c for c in _candidate_roots(root, search_dirs or [])
+                 if c.lower() != root.lower() and os.path.isdir(c)]
+
         step = max(1, len(missing) // samples)
         sample = missing[::step][:samples]
         need = max(1, int(len(sample) * 0.6 + 0.999))
-        for cand in _candidate_roots(root, search_dirs or []):
-            if cand.lower() == root.lower() or not os.path.isdir(cand):
+        whole = next((c for c in cands
+                      if sum(os.path.exists(c + p.rel) for p in sample) >= need), None)
+        if whole:
+            n = sum(1 for p in missing if os.path.exists(whole + p.rel))
+            found.append((root, whole, n, len(group)))
+            continue
+
+        best, best_hits = None, 0
+        for cand in cands:
+            try:
+                top = {e.lower() for e in os.listdir(cand)}
+            except OSError:
                 continue
-            hits = sum(os.path.exists(cand + p.rel) for p in sample)
-            if hits >= need:
-                found.append((root, cand, len(group)))
-                break
+            hits = []
+            for p in missing:
+                first = p.rel.split("/", 1)[0].lower()
+                if first in top and os.path.exists(cand + p.rel):
+                    hits.append(p)
+            # A few matches only count when they sit in matching sub-folders
+            # (e.g. 2005/2005-06-01/IMG_0001.CR2), so one stray IMG_0001.CR2
+            # somewhere doesn't count as a match.
+            ok = len(hits) >= 3 or (hits and all(p.rel.count("/") >= 2 for p in hits))
+            if ok and len(hits) > best_hits:
+                best, best_hits = cand, len(hits)
+        if best:
+            found.append((root, best, best_hits, len(group)))
     return found
 
 
-def apply_remaps(photos: list[Photo], remaps: list[tuple[str, str]]) -> None:
+def apply_remaps(photos: list[Photo], remaps: list[tuple[str, str]],
+                 keep_existing: bool = False) -> None:
+    """Swap path prefixes. With keep_existing, photos still found at their
+    current path are left alone (used for automatically found locations)."""
     for p in photos:
+        if keep_existing and os.path.exists(p.path):
+            continue
         full = (p.root + p.rel)
         for old, new in remaps:
             old_n = old.replace("\\", "/")
@@ -936,12 +968,13 @@ def _skip_dir(name: str) -> bool:
 
 
 def find_catalogs(folder: str) -> list[str]:
-    """All .lrcat files under folder, skipping Lightroom backup and cache folders."""
+    """All catalogs (.lrcat, or .lrdb from Lightroom 1) under folder, skipping
+    Lightroom backup and cache folders."""
     found = []
     for dirpath, dirnames, filenames in os.walk(folder):
         dirnames[:] = [d for d in dirnames if not _skip_dir(d)]
         for f in filenames:
-            if f.lower().endswith(".lrcat"):
+            if f.lower().endswith((".lrcat", ".lrdb")):  # .lrdb = Lightroom 1
                 found.append(os.path.join(dirpath, f))
     return sorted(found, key=str.lower)
 
@@ -1056,14 +1089,15 @@ def run(opts: Options, log=print, confirm_moves=None) -> Result:
     if opts.auto_find:
         log("Checking photo locations...")
         moves = find_moved_roots(photos, opts.search_dirs)
-        for old, new, n in moves:
-            log(f"  Moved: {old}  ->  {new}  ({n} photos)")
+        for old, new, n, total in moves:
+            what = f"{n:,} photos" if n == total else f"{n:,} of {total:,} photos"
+            log(f"  Moved: {old}  ->  {new}  ({what})")
         if moves:
             if confirm_moves and not confirm_moves(moves):
                 log("Cancelled.")
                 res.cancelled = True
                 return res
-            apply_remaps(photos, [(o, n) for o, n, _ in moves])
+            apply_remaps(photos, [(o, n) for o, n, _, _ in moves], keep_existing=True)
             res.moves = moves
 
     # Merge after locating, so the same photo listed under an old and a new drive

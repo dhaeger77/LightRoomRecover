@@ -58,6 +58,8 @@ No app other than Lightroom reproduces Adobe's edits exactly. Expect "close", no
    catalogs gets the keywords and collections from both.
 4. **Step 2:** leave it empty. The tool searches every drive for the photos, even if
    the drive letter changed. If it can't find them, choose the photo folder here.
+   This also works when only some photos were copied (a few folders, or a library
+   split over two drives), as long as the folders below it are the same as before.
 5. Click **Preview**. It lists how many photos have star ratings, color labels,
    keywords and collections, so you can check nothing is missing. Then click
    **Write sidecar files**. If the photos moved, it asks before using the new location.

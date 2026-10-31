@@ -104,7 +104,7 @@ class App:
         # macOS file dialogs grey out files that don't match, and the extension
         # filter is unreliable there, so allow everything on Mac.
         types = ([("All files", "*")] if sys.platform == "darwin"
-                 else [("Lightroom catalog", "*.lrcat"), ("All files", "*.*")])
+                 else [("Lightroom catalog", "*.lrcat *.lrdb"), ("All files", "*.*")])
         files = filedialog.askopenfilenames(title="Choose the Lightroom catalog(s)", filetypes=types)
         if files:
             self.catalog.set("; ".join(os.path.normpath(f) for f in files))
@@ -161,7 +161,10 @@ class App:
                     self.write_line(payload)
                 elif kind == "confirm":
                     moves, event, answer = payload
-                    lines = "\n".join(f"{o}\n   is now at  {n}   ({c} photos)" for o, n, c in moves)
+                    lines = "\n".join(
+                        f"{o}\n   is now at  {n}   "
+                        + (f"({c:,} photos)" if c == t else f"({c:,} of {t:,} photos)")
+                        for o, n, c, t in moves)
                     answer.append(messagebox.askyesno(
                         TITLE, "These photos have moved since Lightroom last saw them:\n\n"
                                f"{lines}\n\nUse the new locations?"))

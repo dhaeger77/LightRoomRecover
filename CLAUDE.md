@@ -17,6 +17,11 @@ so everything runs on his own computer (an Unraid/server version was considered 
   - Must include `stEvt:softwareAgent` containing "Lightroom" (darktable checks it).
   - Keywords → `lr:hierarchicalSubject`; collections → `Lightroom|collections|...` tags;
     pick/reject and virtual copies → tags. RAW wins when RAW+JPG share a base name.
+  - Partial copies (zipped sample set, library split across drives) are found too:
+    if the majority sample test fails, each candidate is scored by how many missing
+    photos exist there with the same sub-folders; 1-2 hits only count with >=2 folder
+    levels. Photos still at their old path are never remapped (keep_existing).
+  - Lightroom 1 catalogs are `.lrdb` (accepted; schema not verified).
   - Finds moved photos: tries the catalog's root folders on every drive / `/Volumes`
     and with leading folders dropped, confirmed by sampling files (`find_moved_roots`).
 - `smartcollections.py` — decodes smart collection rules (Lua in AgLibraryCollectionContent,
@@ -38,7 +43,7 @@ so everything runs on his own computer (an Unraid/server version was considered 
 - `.github/workflows/build.yml` builds Windows + one universal Mac app (python.org universal2 Python + PyInstaller --target-arch universal2), then launches it with `--self-test` on both an arm64 and an Intel runner. The user's own MacBook Pro is Intel (macOS 26). Version tags publish a Release. `build_mac.sh` builds locally on a Mac.
 
 ## Status (2026-10-31)
-- 31 unit tests pass on Windows and macOS (CI). Tests use a fake catalog built in
+- 35 unit tests pass on Windows and macOS (CI). Tests use a fake catalog built in
   `tests/test_lrrecover.py`; schema there is a subset of the real one.
 - NOT yet tested: a real Lightroom catalog, the Mac app's window on a real Mac,
   importing the sidecars into real darktable.

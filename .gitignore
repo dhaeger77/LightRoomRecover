@@ -10,3 +10,4 @@ samples/
 *.lrcat
 *.lrcat-wal
 *.lrdata/
+*.lrdb
