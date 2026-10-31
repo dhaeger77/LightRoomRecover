@@ -1,11 +1,11 @@
-# lrrecover
+# Lightroom Recover
 
 Gets photo edits out of an old Adobe Lightroom catalog (`.lrcat`) and saves them
 as small `.xmp` files next to each photo, which darktable can read.
 
 The catalog is never changed. The tool works on a temporary copy.
 
-## Easy way: LightroomRecover.exe
+## Windows: LightroomRecover.exe
 
 1. Close Lightroom. Plug in the drive with the photos.
 2. Double-click `LightroomRecover.exe`.
@@ -29,46 +29,9 @@ Same window and steps as on Windows. Works on Apple Silicon Macs.
    scroll down and click **Open Anyway**.
 3. When macOS asks to let it access files on a removable volume, click **Allow**.
    That's needed to read the photos on the external drive.
+4. Follow steps 3–5 from the Windows section.
 
-External drives show up under `/Volumes`. The tool finds the photos there even if
-the catalog was made on Windows (`E:\Photos` → `/Volumes/<drive name>/Photos`).
-
-Build it on a Mac with `./build_mac.sh`, or run the GitHub Actions workflow in
-`.github/workflows/build.yml`, which builds both the Mac and Windows versions.
-
-## Command line
-
-Needs Python 3.8 or newer. Nothing else to install.
-
-```
-# 1. See what would happen (writes nothing except a report)
-python lrrecover.py "D:\Lightroom\Lightroom 5 Catalog.lrcat" --dry-run
-
-# 2. Write the sidecars
-python lrrecover.py "D:\Lightroom\Lightroom 5 Catalog.lrcat"
-```
-
-Photos that moved (new drive letter, copied into another folder) are found
-automatically. If not, point it at where they are now:
-
-```
-python lrrecover.py CATALOG --photos-dir "F:/"
-python lrrecover.py CATALOG --remap "D:/Photos=E:/Old Drive/Photos"   # exact mapping
-```
-
-`lrrecover-report.csv` lists every photo and what happened to it.
-
-| Option | What it does |
-|---|---|
-| `--dry-run` | Report only, write nothing |
-| `--photos-dir DIR` | Extra place to look for photos that moved (can repeat) |
-| `--remap OLD=NEW` | Exact folder fix for photos that moved (can repeat) |
-| `--no-auto-find` | Don't search other drives |
-| `--yes` | Accept found locations without asking |
-| `--out-dir DIR` | Put sidecars in a separate folder instead of next to the photos |
-| `--overwrite` | Replace existing `.xmp` files (keeps the old one as `.xmp.bak`) |
-| `--edited-only` | Skip photos that have no develop edits |
-| `--no-collections` | Don't turn collections into tags |
+The tool finds the photos on the external drive even if the catalog was made on Windows.
 
 ## Then in darktable
 
@@ -92,12 +55,70 @@ Virtual copies are not exported (the photo is tagged `Lightroom|had virtual copi
 Results will look close to Lightroom but not identical, because darktable
 processes images differently from Adobe.
 
-## Tests and building the exe
+---
+
+## For developers
+
+### Getting the builds
+
+GitHub Actions builds both versions (`.github/workflows/build.yml`). Open the
+repo's **Actions** tab → **build** → **Run workflow** (or open a finished run) and
+download **LightroomRecover-windows** or **LightroomRecover-mac** under Artifacts.
+Pushing a tag like `v0.1.0` also starts a build.
+
+### Building locally
+
+Mac (needs Python 3.12 from python.org, which includes Tk):
 
 ```
-python -m unittest discover tests
+./build_mac.sh        # -> dist/Lightroom Recover.app and dist/LightroomRecover-mac.zip
+```
 
+Windows:
+
+```
 python -m venv .venv
 .venv\Scripts\pip install pyinstaller==6.11.1
 .venv\Scripts\pyinstaller --onefile --windowed --name LightroomRecover --distpath dist --workpath build --specpath build lrrecover_gui.py
 ```
+
+### Tests
+
+```
+python -m unittest discover tests
+```
+
+### Command line
+
+`lrrecover.py` runs without the window. Needs Python 3.8 or newer, nothing else.
+
+```
+# 1. See what would happen (writes nothing except a report)
+python lrrecover.py "D:\Lightroom\Lightroom 5 Catalog.lrcat" --dry-run
+
+# 2. Write the sidecars
+python lrrecover.py "D:\Lightroom\Lightroom 5 Catalog.lrcat"
+```
+
+Photos that moved (new drive letter, copied into another folder, or a Windows
+catalog read on a Mac where drives are under `/Volumes`) are found automatically.
+If not, point it at where they are now:
+
+```
+python lrrecover.py CATALOG --photos-dir "F:/"
+python lrrecover.py CATALOG --remap "D:/Photos=E:/Old Drive/Photos"   # exact mapping
+```
+
+`lrrecover-report.csv` lists every photo and what happened to it.
+
+| Option | What it does |
+|---|---|
+| `--dry-run` | Report only, write nothing |
+| `--photos-dir DIR` | Extra place to look for photos that moved (can repeat) |
+| `--remap OLD=NEW` | Exact folder fix for photos that moved (can repeat) |
+| `--no-auto-find` | Don't search other drives |
+| `--yes` | Accept found locations without asking |
+| `--out-dir DIR` | Put sidecars in a separate folder instead of next to the photos |
+| `--overwrite` | Replace existing `.xmp` files (keeps the old one as `.xmp.bak`) |
+| `--edited-only` | Skip photos that have no develop edits |
+| `--no-collections` | Don't turn collections into tags |
